@@ -5,34 +5,41 @@ import types
 
 
 class VanillaGradExplainer(object):
-    def __init__(self, model):
+    def __init__(self, model, explain_input=None):
         self.model = model
+        # explanations are calculated with respect to this input
+        self.explain_input = explain_input
 
-    def _backprop(self, inp, ind):
-        output = self.model(inp)
+    def _backprop(self, ind, **inputs):
+        inputs[self.explain_input] = Variable(inputs[self.explain_input].cuda() if torch.cuda.is_available() else inputs[self.explain_input],
+                                              requires_grad=True)
+        output = self.model(**inputs)
+        # flatten
+        output = output.reshape((-1, output.shape[-1]))
         if ind is None:
             ind = output.data.max(1)[1]
         grad_out = output.data.clone()
         grad_out.fill_(0.0)
         grad_out.scatter_(1, ind.unsqueeze(0).t(), 1.0)
         output.backward(grad_out)
-        return inp.grad.data
+        return inputs[self.explain_input].grad.data
 
-    def explain(self, inp, ind=None):
-        return self._backprop(inp, ind)
+    def explain(self, ind=None, **inputs):
+        return self._backprop(ind, **inputs)
 
 
 class GradxInputExplainer(VanillaGradExplainer):
-    def __init__(self, model):
-        super(GradxInputExplainer, self).__init__(model)
+    def __init__(self, model, **kwargs):
+        super(GradxInputExplainer, self).__init__(model, **kwargs)
 
-    def explain(self, inp, ind=None):
-        grad = self._backprop(inp, ind)
-        return inp.data * grad
+    def explain(self, ind=None, **inputs):
+        grad = self._backprop(ind, **inputs)
+        return inputs[self.explain_input].data * grad
 
 
 class SaliencyExplainer(VanillaGradExplainer):
     def __init__(self, model):
+        raise NotImplementedError('adapt changes from VanillaGradExplainer (see GradxInputExplainer)')
         super(SaliencyExplainer, self).__init__(model)
 
     def explain(self, inp, ind=None):
@@ -42,6 +49,7 @@ class SaliencyExplainer(VanillaGradExplainer):
 
 class IntegrateGradExplainer(VanillaGradExplainer):
     def __init__(self, model, steps=100):
+        raise NotImplementedError('adapt changes from VanillaGradExplainer (see GradxInputExplainer)')
         super(IntegrateGradExplainer, self).__init__(model)
         self.steps = steps
 
@@ -59,6 +67,7 @@ class IntegrateGradExplainer(VanillaGradExplainer):
 
 class DeconvExplainer(VanillaGradExplainer):
     def __init__(self, model):
+        raise NotImplementedError('adapt changes from VanillaGradExplainer (see GradxInputExplainer)')
         super(DeconvExplainer, self).__init__(model)
         self._override_backward()
 
@@ -86,6 +95,7 @@ class DeconvExplainer(VanillaGradExplainer):
 
 class GuidedBackpropExplainer(VanillaGradExplainer):
     def __init__(self, model):
+        raise NotImplementedError('adapt changes from VanillaGradExplainer (see GradxInputExplainer)')
         super(GuidedBackpropExplainer, self).__init__(model)
         self._override_backward()
 
@@ -120,6 +130,7 @@ class GuidedBackpropExplainer(VanillaGradExplainer):
 class SmoothGradExplainer(object):
     def __init__(self, base_explainer, stdev_spread=0.15,
                 nsamples=25, magnitude=True):
+        raise NotImplementedError('adapt changes from VanillaGradExplainer (see GradxInputExplainer)')
         self.base_explainer = base_explainer
         self.stdev_spread = stdev_spread
         self.nsamples = nsamples

@@ -6,7 +6,7 @@ from explainer import ebp
 from explainer import real_time as rt
 
 
-def get_explainer(model, name):
+def get_explainer(model, name, **kwargs):
     methods = {
         'vanilla_grad': bp.VanillaGradExplainer,
         'grad_x_input': bp.GradxInputExplainer,
@@ -91,7 +91,7 @@ def get_explainer(model, name):
         explainer = methods[name]('./weights/model-1.ckpt')
 
     else:
-        explainer = methods[name](model)
+        explainer = methods[name](model, **kwargs)
 
     return explainer
 
