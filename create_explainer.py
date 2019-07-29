@@ -24,7 +24,7 @@ def get_explainer(model, name, **kwargs):
     }
 
     if name == 'smooth_grad':
-        base_explainer = methods['vanilla_grad'](model)
+        base_explainer = methods['vanilla_grad'](model, **kwargs)
         explainer = bp.SmoothGradExplainer(base_explainer)
 
     elif name.find('pattern') != -1:
