@@ -15,17 +15,17 @@ class VanillaGradExplainer(object):
                                               requires_grad=True)
         output = self.model(**inputs)
         # flatten output
-        output = output.reshape((-1, output.shape[-1]))
+        output_flat = output.reshape((-1, output.shape[-1]))
         if ind is None:
-            ind = output.data.max(1)[1]
+            ind = output_flat.data.max(1)[1]
         else:
             # flatten indices
             ind = ind.reshape((-1, ind.shape[-1]))
-        grad_out = output.data.clone()
+        grad_out = output_flat.data.clone()
         grad_out.fill_(0.0)
         grad_out.scatter_(1, ind.unsqueeze(0).t(), 1.0)
-        output.backward(grad_out)
-        return inputs[self.explain_input].grad.data
+        output_flat.backward(grad_out)
+        return inputs[self.explain_input].grad.data, output
 
     def explain(self, ind=None, **inputs):
         return self._backprop(ind, **inputs)
@@ -36,8 +36,8 @@ class GradxInputExplainer(VanillaGradExplainer):
         super(GradxInputExplainer, self).__init__(model, **kwargs)
 
     def explain(self, ind=None, **inputs):
-        grad = self._backprop(ind, **inputs)
-        return inputs[self.explain_input].data * grad
+        grad, out = self._backprop(ind, **inputs)
+        return inputs[self.explain_input].data * grad, out
 
 
 class SaliencyExplainer(VanillaGradExplainer):
@@ -45,8 +45,8 @@ class SaliencyExplainer(VanillaGradExplainer):
         super(SaliencyExplainer, self).__init__(model, **kwargs)
 
     def explain(self, ind=None, **inputs):
-        grad = self._backprop(ind=ind, **inputs)
-        return grad.abs()
+        grad, out = self._backprop(ind=ind, **inputs)
+        return grad.abs(), out
 
 
 class IntegrateGradExplainer(VanillaGradExplainer):
@@ -61,10 +61,10 @@ class IntegrateGradExplainer(VanillaGradExplainer):
         for alpha in np.arange(1 / self.steps, 1.0, 1 / self.steps):
             new_inp = Variable(inp_data * alpha, requires_grad=True)
             inputs[self.explain_input] = new_inp
-            g = self._backprop(ind=ind, **inputs)
+            g, out = self._backprop(ind=ind, **inputs)
             grad += g
 
-        return grad * inp_data / self.steps
+        return grad * inp_data / self.steps, out
 
 
 class DeconvExplainer(VanillaGradExplainer):
@@ -151,11 +151,11 @@ class SmoothGradExplainer(object):
             noise = noise * stdev
             inp.data.copy_(noise + origin_inp_data)
             inputs[self.base_explainer.explain_input] = inp
-            grad = self.base_explainer.explain(ind=ind, **inputs)
+            grad, out = self.base_explainer.explain(ind=ind, **inputs)
 
             if self.magnitude:
                 total_gradients += grad ** 2
             else:
                 total_gradients += grad
 
-        return total_gradients / self.nsamples
+        return total_gradients / self.nsamples, None
