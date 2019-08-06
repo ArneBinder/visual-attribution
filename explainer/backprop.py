@@ -14,17 +14,27 @@ class VanillaGradExplainer(object):
         inputs[self.explain_input] = Variable(inputs[self.explain_input].cuda() if torch.cuda.is_available() else inputs[self.explain_input],
                                               requires_grad=True)
         output = self.model(**inputs)
-        # flatten output
-        output_flat = output.reshape((-1, output.shape[-1]))
-        if ind is None:
-            ind = output_flat.data.max(1)[1]
-        else:
-            # flatten indices
-            ind = ind.reshape((-1, ind.shape[-1]))
-        grad_out = output_flat.data.clone()
+
+        grad_out = output.data.clone()
         grad_out.fill_(0.0)
-        grad_out.scatter_(1, ind.unsqueeze(0).t(), 1.0)
-        output_flat.backward(grad_out)
+        if ind is None:
+            ind = output.data.max(dim=-1)[1]
+            ind = ind.unsqueeze(-1)
+            grad_out.scatter_(-1, ind, 1.0)
+        else:
+            # if ind is a tuple, the second element is the token index
+            if isinstance(ind, tuple):
+                if len(ind) == 2:
+                    _grad_out = torch.zeros_like(output.data)
+                    _grad_out.scatter_(-1, ind[0].unsqueeze(-1), 1.0)
+                    grad_out[:, ind[1]] = _grad_out[:, ind[1]]
+                else:
+                    raise NotImplementedError('index with len(shape) > 2 not implemented')
+            else:
+                ind = ind.unsqueeze(-1)
+                grad_out.scatter_(-1, ind, 1.0)
+
+        output.backward(grad_out)
         return inputs[self.explain_input].grad.data, output
 
     def explain(self, ind=None, **inputs):
