@@ -5,14 +5,16 @@ import types
 
 
 class VanillaGradExplainer(object):
-    def __init__(self, model, explain_input=None):
+    def __init__(self, model, explain_input_getter):
         self.model = model
         # explanations are calculated with respect to this input
-        self.explain_input = explain_input
+        self.explain_input_getter = explain_input_getter
 
     def _backprop(self, ind, **inputs):
-        inputs[self.explain_input] = Variable(inputs[self.explain_input].cuda() if torch.cuda.is_available() else inputs[self.explain_input],
-                                              requires_grad=True)
+        self.input_explain = self.explain_input_getter(inputs, requires_grad=True)
+        #inputs[self.explain_input_setter] = Variable(inputs[self.explain_input_setter], requires_grad=True)
+        #input_explain = inputs[self.explain_input_setter]
+
         output = self.model(**inputs)
 
         grad_out = output.data.clone()
@@ -35,7 +37,7 @@ class VanillaGradExplainer(object):
                 grad_out.scatter_(-1, ind, 1.0)
 
         output.backward(grad_out)
-        return inputs[self.explain_input].grad.data, output
+        return self.input_explain.grad.data, output
 
     def explain(self, ind=None, **inputs):
         return self._backprop(ind, **inputs)
@@ -47,7 +49,7 @@ class GradxInputExplainer(VanillaGradExplainer):
 
     def explain(self, ind=None, **inputs):
         grad, out = self._backprop(ind, **inputs)
-        return inputs[self.explain_input].data * grad, out
+        return self.input_explain.data * grad, out
 
 
 class SaliencyExplainer(VanillaGradExplainer):
@@ -66,11 +68,12 @@ class IntegrateGradExplainer(VanillaGradExplainer):
 
     def explain(self, ind=None, **inputs):
         grad = 0
-        inp_data = inputs[self.explain_input].data.clone()
+        #inp_data = inputs[self.explain_input_setter].data.clone()
+        inp_data = self.explain_input_getter(inputs).data.clone()
 
         for alpha in np.arange(1 / self.steps, 1.0, 1 / self.steps):
             new_inp = Variable(inp_data * alpha, requires_grad=True)
-            inputs[self.explain_input] = new_inp
+            inputs[self.explain_input_getter] = new_inp
             g, out = self._backprop(ind=ind, **inputs)
             grad += g
 
