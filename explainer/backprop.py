@@ -5,17 +5,19 @@ import types
 
 
 class VanillaGradExplainer(object):
-    def __init__(self, model, explain_input_getter):
+    def __init__(self, model, explain_input_getter, explain_output_getter=None):
         self.model = model
         # explanations are calculated with respect to this input
         self.explain_input_getter = explain_input_getter
+        self.explain_output_getter = explain_output_getter or (lambda x: x)
 
     def _backprop(self, ind, **inputs):
         self.input_explain = self.explain_input_getter(inputs, requires_grad=True)
         #inputs[self.explain_input_setter] = Variable(inputs[self.explain_input_setter], requires_grad=True)
         #input_explain = inputs[self.explain_input_setter]
 
-        output = self.model(**inputs)
+        output_original = self.model(**inputs)
+        output = self.explain_output_getter(output_original)
 
         grad_out = output.data.clone()
         grad_out.fill_(0.0)
@@ -37,7 +39,7 @@ class VanillaGradExplainer(object):
                 grad_out.scatter_(-1, ind, 1.0)
 
         output.backward(grad_out)
-        return self.input_explain.grad.data, output
+        return self.input_explain.grad.data, output_original
 
     def explain(self, ind=None, **inputs):
         return self._backprop(ind, **inputs)
