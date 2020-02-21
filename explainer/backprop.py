@@ -28,12 +28,19 @@ class VanillaGradExplainer(object):
         self.backward_function = backward_function or default_backwards_function
 
     def _backprop(self, args, kwargs, explain_index=None):
-        for arg in tuple(args) + tuple(kwargs.values()):
-            if isinstance(arg, torch.Tensor):
+        for i in range(len(args)):
+            if isinstance(args[i], torch.Tensor):
                 try:
-                    arg.requires_grad_()
+                    args[i] = Variable(args[i], requires_grad=True)
                 except RuntimeError:
                     pass
+        for k in kwargs.keys():
+            if isinstance(kwargs[k], torch.Tensor):
+                try:
+                    kwargs[k] = Variable(kwargs[k], requires_grad=True)
+                except RuntimeError:
+                    pass
+
         output = self.model.forward(*args, **kwargs)
         self.backward_function(output=output, index=explain_index)
 
