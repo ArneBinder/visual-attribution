@@ -29,17 +29,11 @@ class VanillaGradExplainer(object):
 
     def _backprop(self, args, kwargs, explain_index=None):
         for i in range(len(args)):
-            if isinstance(args[i], torch.Tensor):
-                try:
-                    args[i] = Variable(args[i], requires_grad=True)
-                except RuntimeError:
-                    pass
+            if isinstance(args[i], torch.Tensor) and args[i].dtype == torch.float:
+                args[i] = Variable(args[i], requires_grad=True)
         for k in kwargs.keys():
-            if isinstance(kwargs[k], torch.Tensor):
-                try:
-                    kwargs[k] = Variable(kwargs[k], requires_grad=True)
-                except RuntimeError:
-                    pass
+            if isinstance(kwargs[k], torch.Tensor) and kwargs[k].dtype == torch.float:
+                kwargs[k] = Variable(kwargs[k], requires_grad=True)
 
         output = self.model.forward(*args, **kwargs)
         self.backward_function(output=output, index=explain_index)
@@ -50,7 +44,7 @@ class VanillaGradExplainer(object):
 
     def explain(self, *args, explain_index=None, **kwargs):
         res = self._backprop(args, kwargs, explain_index)
-        return _select_result(*res)
+        return _select_result(*res, args=args, kwargs=kwargs)
 
 
 def _prod(list_or_dict1, list_or_dict2):
@@ -61,19 +55,19 @@ def _prod(list_or_dict1, list_or_dict2):
     return res
 
 
-def _select_result(args, kwargs):
+def _select_result(args_grads, kwargs_grads, args, kwargs):
     if len(args) == 0 and len(kwargs) == 0:
         return None
     if len(args) == 0:
-        return kwargs
+        return kwargs_grads
     if len(kwargs) == 0:
-        return args
-    return args, kwargs
+        return args_grads
+    return args_grads, kwargs_grads
 
 
 class GradxInputExplainer(VanillaGradExplainer):
-    def __init__(self, model, backward_function=None):
-        super(GradxInputExplainer, self).__init__(model, backward_function)
+    def __init__(self, model, **kwargs):
+        super(GradxInputExplainer, self).__init__(model, **kwargs)
 
     def explain(self, *args, explain_index=None, **kwargs):
         arg_grads, kwarg_grads = self._backprop(args, kwargs, explain_index)
@@ -82,31 +76,65 @@ class GradxInputExplainer(VanillaGradExplainer):
 
 
 class SaliencyExplainer(VanillaGradExplainer):
-    def __init__(self, model, backward_function=None):
-        super(SaliencyExplainer, self).__init__(model, backward_function)
+    def __init__(self, model, **kwargs):
+        super(SaliencyExplainer, self).__init__(model, **kwargs)
 
     def explain(self, *args, explain_index=None, **kwargs):
         arg_grads, kwarg_grads = self._backprop(args, kwargs, explain_index)
         #return grad.abs()
-        return _select_result([v.abs() if v is not None else None for v in arg_grads], {k: v.abs() for k, v in kwarg_grads.items()})
+        return _select_result([v.abs() if v is not None else None for v in arg_grads],
+                              {k: v.abs() for k, v in kwarg_grads.items()},
+                              args=args, kwargs=kwargs)
 
 
 class IntegrateGradExplainer(VanillaGradExplainer):
-    def __init__(self, model, steps=100):
-        super(IntegrateGradExplainer, self).__init__(model)
-        raise NotImplementedError('IntegrateGradExplainer not yet adapted for multi input / output')
+    def __init__(self, model, steps=100, args_indices=None, kwargs_keys=None, **kwargs):
+        super(IntegrateGradExplainer, self).__init__(model, **kwargs)
         self.steps = steps
+        self.args_indices = args_indices
+        self.kwargs_keys = kwargs_keys
 
-    def explain(self, args, kwargs, explain_index=None):
-        grad = 0
-        inp_data = inp.data.clone()
+    def explain(self, *args, explain_index=None, **kwargs):
+        #grad = 0
+        args_grads = None
+        kwargs_grads = None
+        #inp_data = inp.data.clone()
+
+        # if args_indices / kwargs_keys are note provided, compute explanations for a all FloatTensor inputs
+        if self.args_indices is None:
+            args_indices = [idx for idx, arg in enumerate(args) if isinstance(arg, torch.Tensor) and arg.dtype == torch.float]
+        else:
+            args_indices = self.args_indices
+        if self.kwargs_keys is None:
+            kwargs_keys = [k for k, arg in kwargs.items() if isinstance(arg, torch.Tensor) and arg.dtype == torch.float]
+        else:
+            kwargs_keys = self.kwargs_keys
+
+        args = [arg.data.clone() if idx in args_indices else arg for idx, arg in enumerate(args)]
+        kwargs = {k: arg.data.clone() if k in kwargs_keys else arg for k, arg in kwargs.items()}
 
         for alpha in np.arange(1 / self.steps, 1.0, 1 / self.steps):
-            new_inp = Variable(inp_data * alpha, requires_grad=True)
-            g = self._backprop(new_inp, explain_index)
-            grad += g
+            #new_inp = Variable(inp_data * alpha, requires_grad=True)
+            new_args = [arg * alpha if idx in args_indices else arg for idx, arg in enumerate(args)]
+            new_kwargs = {k: arg * alpha if k in kwargs_keys else arg for k, arg in kwargs.items()}
+            new_args_grads, new_kwargs_grads = self._backprop(new_args, new_kwargs, explain_index=explain_index)
+            #grad += g
+            if args_grads is None:
+                args_grads = new_args_grads
+            else:
+                for idx, grad in enumerate(new_args_grads):
+                    if grad is not None:
+                        args_grads[idx] *= grad
+            if kwargs_grads is None:
+                kwargs_grads = new_kwargs_grads
+            else:
+                for k, grad in new_kwargs_grads.items():
+                    kwargs_grads[k] += grad
 
-        return grad * inp_data / self.steps
+        #return grad * inp_data / self.steps
+        args_grads = [grad * args[idx] / self.steps if grad is not None else None for idx, grad in enumerate(args_grads)]
+        kwargs_grads = {k: grad * kwargs[k] / self.steps for k, grad in kwargs_grads.items()}
+        return _select_result(args_grads, kwargs_grads, args=args, kwargs=kwargs)
 
 
 class DeconvExplainer(VanillaGradExplainer):
