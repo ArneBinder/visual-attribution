@@ -72,7 +72,7 @@ class GradxInputExplainer(VanillaGradExplainer):
     def explain(self, *args, explain_index=None, **kwargs):
         arg_grads, kwarg_grads = self._backprop(args, kwargs, explain_index)
         #return inp.data * grad
-        return _select_result(_prod(arg_grads, args), _prod(kwarg_grads, kwargs))
+        return _select_result(_prod(arg_grads, args), _prod(kwarg_grads, kwargs), args=args, kwargs=kwargs)
 
 
 class SaliencyExplainer(VanillaGradExplainer):
